@@ -38,6 +38,14 @@ function SmartThingsAccessory(platform, device) {
     Accessory.call(this, this.name, id);
     var that = this;
 
+	//Removing excluded capabilities from config
+	for (var i = 0; i < device.excludedCapabilities.length; i++) {
+		excludedCapability = device.excludedCapabilities[i];
+		if (device.capabilities[excludedCapability] !== undefined) {
+			platform.log.debug("Removing capability: "+excludedCapability+" for device: "+device.name)
+			delete device.capabilities[excludedCapability];
+		}
+	}
     //Get the Capabilities List
     for (var index in device.capabilities) {
         if ((platform.knownCapabilities.indexOf(index) == -1) && (platform.unknownCapabilities.indexOf(index) == -1))
@@ -54,7 +62,7 @@ function SmartThingsAccessory(platform, device) {
 	var thisCharacteristic;
 	
     if (device.capabilities["Switch Level"] !== undefined) {
-        if (device.commands.levelOpenClose) {
+        if (device.commands.levelOpenClose || device.commands.presetPosition) {
             //This is a Window Shade
             this.deviceGroup = "shades"
 
@@ -86,8 +94,7 @@ function SmartThingsAccessory(platform, device) {
             	    if (value > 0)
             	    	that.platform.api.runCommand(callback, that.deviceid, "setLevel", {value1: value }); });
 			that.platform.addAttributeUsage("level", this.deviceid, thisCharacteristic);
-        
-        } else {
+        } else if (device.commands.setLevel) {
             this.deviceGroup = "lights";
             thisCharacteristic = this.getaddService(Service.Lightbulb).getCharacteristic(Characteristic.On)
             thisCharacteristic.on('get', function(callback) { callback(null, that.device.attributes.switch == "on"); });
@@ -232,6 +239,13 @@ function SmartThingsAccessory(platform, device) {
                     that.platform.api.runCommand(callback, that.deviceid, "off");
             });
 		that.platform.addAttributeUsage("switch", this.deviceid, thisCharacteristic);
+	    
+        if (device.capabilities["Switch Level"] !== undefined) {
+            thisCharacteristic = this.getaddService(Service.Lightbulb).getCharacteristic(Characteristic.Brightness)
+            thisCharacteristic.on('get', function(callback) { callback(null, parseInt(that.device.attributes.level)); });
+            thisCharacteristic.on('set', function(value, callback) { that.platform.api.runCommand(callback, that.deviceid, "setLevel", { value1: value }); });
+			that.platform.addAttributeUsage("level", this.deviceid, thisCharacteristic);
+	}
     }
 
     if ((device.capabilities["Smoke Detector"] !== undefined) && (that.device.attributes.smoke)) {
@@ -305,8 +319,15 @@ function SmartThingsAccessory(platform, device) {
             });
 		that.platform.addAttributeUsage("temperature", this.deviceid, thisCharacteristic);
     }
+	
+	if (device.capabilities["Illuminance Measurement"] !== undefined) {
+        if (this.deviceGroup == 'unknown') this.deviceGroup = "sensor";
+        thisCharacteristic = this.getaddService(Service.LightSensor).getCharacteristic(Characteristic.CurrentAmbientLightLevel)
+        thisCharacteristic.on('get', function(callback) { callback(null, Math.round(that.device.attributes.illuminance)); });
+		that.platform.addAttributeUsage("illuminance", this.deviceid, thisCharacteristic);
+    }
 
-    if (device.capabilities["Contact Sensor"] !== undefined) {
+    if (device.capabilities["Contact Sensor"] !== undefined && device.capabilities["Garage Door Control"] === undefined) {
         if (this.deviceGroup == 'unknown') this.deviceGroup = "sensor";
         thisCharacteristic = this.getaddService(Service.ContactSensor).getCharacteristic(Characteristic.ContactSensorState)
         thisCharacteristic.on('get', function(callback) {
